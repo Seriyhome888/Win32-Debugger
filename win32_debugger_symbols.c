@@ -3,33 +3,42 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #pragma comment(lib, "dbghelp.lib")
 #include <dbghelp.h>
 
 #define MAX_BREAKPOINTS 16
 
-typedef struct {
+typedef struct
+{
 	void* address;
 	BYTE original_byte;
 	bool is_set;
 	bool is_temporary;
 } Breakpoint;
 
+// Global debugger states
 Breakpoint g_breakpoints[MAX_BREAKPOINTS] = { 0 };
 bool g_is_single_stepping = false;
 bool g_symbols_initialized = false;
 DWORD64 g_base_address = 0;
+void* g_watched_address = NULL;
 
-typedef struct {
+typedef struct
+{
 	const char* target_name;
 	DWORD64 address;
 	bool found;
 } FindVariableContext;
 
-BOOL CALLBACK EnumSymbolsCallback(PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext) 
+// Callback function executed for each symbol found within the current local frame scope
+BOOL CALLBACK EnumSymbolsCallback(PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext)
 {
 	FindVariableContext* context = (FindVariableContext*)UserContext;
-	if (strcmp(pSymInfo->Name, context->target_name) == 0) 
+	if (strcmp(pSymInfo->Name, context->target_name) == 0)
 	{
 		context->address = pSymInfo->Address;
 		context->found = true;
@@ -38,34 +47,34 @@ BOOL CALLBACK EnumSymbolsCallback(PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID
 	return TRUE;
 }
 
-bool ReadTargetMemory(HANDLE process_handle, void* address, void* buffer, size_t size) 
+bool ReadTargetMemory(HANDLE process_handle, void* address, void* buffer, size_t size)
 {
 	SIZE_T bytes_read;
 	return ReadProcessMemory(process_handle, address, buffer, size, &bytes_read) && (bytes_read == size);
 }
 
-bool WriteTargetMemory(HANDLE process_handle, void* address, const void* buffer, size_t size) 
+bool WriteTargetMemory(HANDLE process_handle, void* address, const void* buffer, size_t size)
 {
 	SIZE_T bytes_written;
 	return WriteProcessMemory(process_handle, address, buffer, size, &bytes_written) && (bytes_written == size);
 }
 
-bool AddBreakpointExtended(HANDLE process_handle, void* address, bool is_temp) 
+bool AddBreakpointExtended(HANDLE process_handle, void* address, bool is_temp)
 {
-	for (int i = 0; i < MAX_BREAKPOINTS; i++) 
+	for (int i = 0; i < MAX_BREAKPOINTS; i++)
 	{
 		if (g_breakpoints[i].is_set && g_breakpoints[i].address == address) return true;
 	}
 
-	for (int i = 0; i < MAX_BREAKPOINTS; i++) 
+	for (int i = 0; i < MAX_BREAKPOINTS; i++)
 	{
-		if (!g_breakpoints[i].is_set) 
+		if (!g_breakpoints[i].is_set)
 		{
 			BYTE original;
-			if (ReadTargetMemory(process_handle, address, &original, 1)) 
+			if (ReadTargetMemory(process_handle, address, &original, 1))
 			{
 				BYTE int3_opcode = 0xCC;
-				if (WriteTargetMemory(process_handle, address, &int3_opcode, 1)) 
+				if (WriteTargetMemory(process_handle, address, &int3_opcode, 1))
 				{
 					g_breakpoints[i].address = address;
 					g_breakpoints[i].original_byte = original;
@@ -80,12 +89,12 @@ bool AddBreakpointExtended(HANDLE process_handle, void* address, bool is_temp)
 	return false;
 }
 
-bool AddBreakpoint(HANDLE process_handle, void* address) 
+bool AddBreakpoint(HANDLE process_handle, void* address)
 {
 	return AddBreakpointExtended(process_handle, address, false);
 }
 
-void SetSingleStepTrap(HANDLE thread_handle, bool enable) 
+void SetSingleStepTrap(HANDLE thread_handle, bool enable)
 {
 	CONTEXT ctx;
 	ctx.ContextFlags = CONTEXT_CONTROL;
@@ -95,7 +104,7 @@ void SetSingleStepTrap(HANDLE thread_handle, bool enable)
 	SetThreadContext(thread_handle, &ctx);
 }
 
-bool ResolveVariableAddress(HANDLE process_handle, HANDLE thread_handle, const char* var_name, DWORD64* out_address) 
+bool ResolveVariableAddress(HANDLE process_handle, HANDLE thread_handle, const char* var_name, DWORD64* out_address)
 {
 	CONTEXT ctx;
 	ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
@@ -113,18 +122,19 @@ bool ResolveVariableAddress(HANDLE process_handle, HANDLE thread_handle, const c
 	SymSetContext(process_handle, &sf, &ctx);
 
 	FindVariableContext search_ctx = { var_name, 0, false };
-	if (SymEnumSymbols(process_handle, 0, NULL, EnumSymbolsCallback, &search_ctx) && search_ctx.found) 
+	if (SymEnumSymbols(process_handle, 0, NULL, EnumSymbolsCallback, &search_ctx) && search_ctx.found)
 	{
 		int stack_offset = (int)(search_ctx.address & 0xFFFFFFFF);
-		if (search_ctx.address >= 0x8000000000000000ULL || stack_offset < 0 || search_ctx.address < 0x10000) 
+		if (search_ctx.address >= 0x8000000000000000ULL || stack_offset < 0 || search_ctx.address < 0x10000)
 		{
+
 #ifdef _WIN64
 			* out_address = ctx.Rbp + stack_offset;
 #else
 			* out_address = ctx.Ebp + stack_offset;
 #endif
 		}
-		else 
+		else
 		{
 			*out_address = search_ctx.address;
 		}
@@ -133,95 +143,95 @@ bool ResolveVariableAddress(HANDLE process_handle, HANDLE thread_handle, const c
 	return false;
 }
 
-void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char* var_name) 
+void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char* var_name)
 {
 	if (!g_symbols_initialized) return;
 
 	DWORD64 absolute_address = 0;
-	if (ResolveVariableAddress(process_handle, thread_handle, var_name, &absolute_address)) 
+	if (ResolveVariableAddress(process_handle, thread_handle, var_name, &absolute_address))
 	{
 		int value = 0;
-		if (ReadTargetMemory(process_handle, (void*)absolute_address, &value, sizeof(value))) 
+		if (ReadTargetMemory(process_handle, (void*)absolute_address, &value, sizeof(value)))
 		{
 			printf("[+] Variable '%s' (at 0x%llX) value: %d (0x%X)\n", var_name, absolute_address, value, value);
 		}
-		else 
+		else
 		{
 			printf("[-] Failed to read memory value at address 0x%llX\n", absolute_address);
 		}
 	}
-	else 
+	else
 	{
 		printf("[-] Symbol variable '%s' could not be resolved in the current active local stack frame layer.\n", var_name);
 	}
 }
 
-void ModifyVariableByName(HANDLE process_handle, HANDLE thread_handle, const char* var_name, int new_value) 
+void ModifyVariableByName(HANDLE process_handle, HANDLE thread_handle, const char* var_name, int new_value)
 {
 	if (!g_symbols_initialized) return;
 
 	DWORD64 absolute_address = 0;
-	if (ResolveVariableAddress(process_handle, thread_handle, var_name, &absolute_address)) 
+	if (ResolveVariableAddress(process_handle, thread_handle, var_name, &absolute_address))
 	{
-		if (WriteTargetMemory(process_handle, (void*)absolute_address, &new_value, sizeof(new_value))) 
+		if (WriteTargetMemory(process_handle, (void*)absolute_address, &new_value, sizeof(new_value)))
 		{
 			printf("[+] Successfully patched '%s' to value: %d\n", var_name, new_value);
 		}
-		else 
+		else
 		{
 			printf("[-] Failed to write memory value to address 0x%llX\n", absolute_address);
 		}
 	}
-	else 
+	else
 	{
 		printf("[-] Symbol variable '%s' could not be resolved in the current active local stack frame layer.\n", var_name);
 	}
 }
 
-void SetLineBreakpoint(HANDLE process_handle, const char* filename, int line_number) 
+void SetLineBreakpoint(HANDLE process_handle, const char* filename, int line_number)
 {
 	IMAGEHLP_LINE64 line_info = { 0 };
 	line_info.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
 	LONG displacement = 0;
 
-	if (SymGetLineFromName64(process_handle, NULL, filename, line_number, &displacement, &line_info)) 
+	if (SymGetLineFromName64(process_handle, NULL, filename, line_number, &displacement, &line_info))
 	{
 		void* bp_address = (void*)line_info.Address;
-		if (AddBreakpoint(process_handle, bp_address)) 
+		if (AddBreakpoint(process_handle, bp_address))
 		{
 			printf("[+] Successfully set line breakpoint at %s:%d (Address: 0x%p)\n", filename, line_number, bp_address);
 		}
 	}
-	else 
+	else
 	{
 		printf("[-] Error: Could not resolve line %d in file '%s'.\n", line_number, filename);
 	}
 }
 
-void HandleStepOver(HANDLE process_handle, HANDLE thread_handle) 
+void HandleStepOver(HANDLE process_handle, HANDLE thread_handle)
 {
 	CONTEXT ctx;
 	ctx.ContextFlags = CONTEXT_CONTROL;
 	GetThreadContext(thread_handle, &ctx);
 
-	BYTE instruction_buffer[16] = { 0 };
+	BYTE instruction_buffer = { 0 };
 #ifdef _WIN64
 	void* current_ip = (void*)ctx.Rip;
 #else
 	void* current_ip = (void*)ctx.Eip;
 #endif
 
-	if (ReadTargetMemory(process_handle, current_ip, instruction_buffer, sizeof(instruction_buffer))) 
+	if (ReadTargetMemory(process_handle, current_ip, instruction_buffer, sizeof(instruction_buffer)))
 	{
-		BYTE opcode = instruction_buffer[0];
-		if (opcode == 0xE8) 
+		BYTE opcode = instruction_buffer;
+		if (opcode == 0xE8)
 		{
 			void* next_instruction = (void*)((BYTE*)current_ip + 5);
 			AddBreakpointExtended(process_handle, next_instruction, true);
 			g_is_single_stepping = false;
 			return;
 		}
-		else if (opcode == 0xFF && (instruction_buffer[1] & 0x30) == 0x10) 
+		else if (opcode == 0xFF && (instruction_buffer & 0x30) == 0x10)
 		{
 			void* next_instruction = (void*)((BYTE*)current_ip + 2);
 			AddBreakpointExtended(process_handle, next_instruction, true);
@@ -233,7 +243,7 @@ void HandleStepOver(HANDLE process_handle, HANDLE thread_handle)
 	SetSingleStepTrap(thread_handle, true);
 }
 
-void HandleStepOut(HANDLE process_handle, HANDLE thread_handle) 
+void HandleStepOut(HANDLE process_handle, HANDLE thread_handle)
 {
 	CONTEXT ctx;
 	ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
@@ -241,7 +251,7 @@ void HandleStepOut(HANDLE process_handle, HANDLE thread_handle)
 	DWORD64 return_address = 0;
 
 #ifdef _WIN64
-	if (ReadTargetMemory(process_handle, (void*)ctx.Rsp, &return_address, sizeof(return_address)) && return_address != 0) 
+	if (ReadTargetMemory(process_handle, (void*)ctx.Rsp, &return_address, sizeof(return_address)) && return_address != 0)
 	{
 		AddBreakpointExtended(process_handle, (void*)return_address, true);
 		g_is_single_stepping = false;
@@ -249,7 +259,7 @@ void HandleStepOut(HANDLE process_handle, HANDLE thread_handle)
 #else
 	DWORD32 ret_addr_32 = 0;
 	void* ebp_return_ptr = (void*)(ctx.Ebp + 4);
-	if (ReadTargetMemory(process_handle, ebp_return_ptr, &ret_addr_32, sizeof(ret_addr_32)) && ret_addr_32 != 0) 
+	if (ReadTargetMemory(process_handle, ebp_return_ptr, &ret_addr_32, sizeof(ret_addr_32)) && ret_addr_32 != 0)
 	{
 		return_address = ret_addr_32;
 		AddBreakpointExtended(process_handle, (void*)return_address, true);
@@ -260,7 +270,7 @@ void HandleStepOut(HANDLE process_handle, HANDLE thread_handle)
 
 void DumpMemoryHex(HANDLE process_handle, void* start_address, size_t dynamic_bytes)
 {
-	BYTE buffer[16];
+	BYTE buffer[16]; // FIX: Correctly declared as a 16-byte stack array
 	size_t rows = (dynamic_bytes + 15) / 16;
 
 	printf("\n--- Memory Dump at 0x%p ---\n", start_address);
@@ -269,7 +279,7 @@ void DumpMemoryHex(HANDLE process_handle, void* start_address, size_t dynamic_by
 		void* current_row_addr = (BYTE*)start_address + (r * 16);
 		size_t bytes_to_read = (dynamic_bytes - (r * 16) < 16) ? (dynamic_bytes - (r * 16)) : 16;
 
-		ZeroMemory(buffer, 16);
+		ZeroMemory(buffer, 16); // FIX: Successfully fills the 16-byte chunk
 		if (!ReadTargetMemory(process_handle, current_row_addr, buffer, bytes_to_read))
 		{
 			printf("0x%p:  [Memory Read Failed]\n", current_row_addr);
@@ -282,7 +292,7 @@ void DumpMemoryHex(HANDLE process_handle, void* start_address, size_t dynamic_by
 		{
 			if (i < bytes_to_read) printf("%02X ", buffer[i]);
 			else printf("   ");
-			if (i == 7) printf(" "); // Visual anchor split
+			if (i == 7) printf(" ");
 		}
 
 		// Print ASCII Character Representation
@@ -291,17 +301,23 @@ void DumpMemoryHex(HANDLE process_handle, void* start_address, size_t dynamic_by
 		{
 			char ch = (char)buffer[i];
 			if (ch >= 32 && ch <= 126) printf("%c", ch);
-			else printf("."); // Fallback placeholder symbol
+			else printf(".");
 		}
 		printf("\n");
 	}
+	printf("----------------------------------------\n");
 }
 
 void PrintCallStackBacktrace(HANDLE process_handle, HANDLE thread_handle)
 {
 	CONTEXT ctx;
 	ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
-	GetThreadContext(thread_handle, &ctx);
+
+	if (!GetThreadContext(thread_handle, &ctx))
+	{
+		printf("[-] Failed to capture thread context for backtrace. Error: %lu\n", GetLastError());
+		return;
+	}
 
 	STACKFRAME64 frame = { 0 };
 	DWORD machine_type = IMAGE_FILE_MACHINE_I386;
@@ -312,6 +328,7 @@ void PrintCallStackBacktrace(HANDLE process_handle, HANDLE thread_handle)
 	frame.AddrFrame.Offset = ctx.Rbp;
 	frame.AddrStack.Offset = ctx.Rsp;
 #else
+	machine_type = IMAGE_FILE_MACHINE_I386;
 	frame.AddrPC.Offset = ctx.Eip;
 	frame.AddrFrame.Offset = ctx.Ebp;
 	frame.AddrStack.Offset = ctx.Esp;
@@ -320,7 +337,6 @@ void PrintCallStackBacktrace(HANDLE process_handle, HANDLE thread_handle)
 	frame.AddrPC.Mode = AddrModeFlat;
 	frame.AddrFrame.Mode = AddrModeFlat;
 	frame.AddrStack.Mode = AddrModeFlat;
-
 	printf("\n--- Active Call Stack Backtrace ---\n");
 	int frame_depth = 0;
 
@@ -340,82 +356,101 @@ void PrintCallStackBacktrace(HANDLE process_handle, HANDLE thread_handle)
 		}
 		else
 		{
-			printf("  [%d] 0x%I64X -> [Unknown Function module]\n", frame_depth++, frame.AddrPC.Offset);
+			printf("  [%d] 0x%I64X -> [Unknown Module / Unresolved Frame]\n", frame_depth++, frame.AddrPC.Offset);
 		}
 	}
+
+	printf("-----------------------------------\n");
 }
 
-void DebuggerConsolePrompt(HANDLE process_handle, HANDLE thread_handle) 
+bool SetHardwareWatchpoint(HANDLE thread_handle, void* address)
+{
+	CONTEXT ctx;
+	ctx.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+	if (!GetThreadContext(thread_handle, &ctx))
+		return false;
+
+#ifdef _WIN64
+	ctx.Dr0 = (DWORD64)address;
+#else
+	ctx.Dr0 = (DWORD32)address;
+#endif
+
+	ctx.Dr7 |= 0x1;
+	ctx.Dr7 |= 0x10000;
+	ctx.Dr7 |= 0x300000;
+	g_watched_address = address;
+	return SetThreadContext(thread_handle, &ctx);
+}
+
+void ClearHardwareWatchpoint(HANDLE thread_handle)
+{
+	CONTEXT ctx;
+	ctx.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+
+	if (GetThreadContext(thread_handle, &ctx))
+	{
+		ctx.Dr0 = 0;
+		ctx.Dr7 &= ~0x1;
+		ctx.Dr7 &= ~0x10000;
+		ctx.Dr7 &= ~0x300000;
+		SetThreadContext(thread_handle, &ctx);
+	}
+
+	g_watched_address = NULL;
+}
+
+void DebuggerConsolePrompt(HANDLE process_handle, HANDLE thread_handle)
 {
 	char cmd[64];
 
-	while (true) 
+	while (true)
 	{
 		printf("\n[dbgr]> ");
 
 		if (scanf_s("%63s", cmd, (unsigned int)sizeof(cmd)) <= 0) continue;
 
-		if (strcmp(cmd, "help") == 0) 
+		if (strcmp(cmd, "help") == 0)
 		{
-			printf("Commands:\n  r            - Print registers\n  si           - Step Into\n  so           - Step Over\n  out          - Step Out\n  c            - Continue\n  print <v>    - Print variable value\n  set <v> <n>  - Set variable value\n  bp <f> <l>   - Set line breakpoint\n");
+			printf("Commands:\n  r            - Print registers\n  si           - Step Into\n  so           - Step Over\n  out          - Step Out\n  c            - Continue\n  bt           - Print Call Stack Backtrace\n  x   - Hex dump  bytes at memory address \n  print     - Print variable value\n  set    - Set variable value\n  bp     - Set line breakpoint\n  wp        - Set Hardware Write Watchpoint on variable \n");
 		}
-		else if (strcmp(cmd, "r") == 0) 
+		else if (strcmp(cmd, "r") == 0)
 		{
-			CONTEXT ctx; ctx.ContextFlags = CONTEXT_CONTROL;
+			CONTEXT ctx;
+			ctx.ContextFlags = CONTEXT_CONTROL;
 			GetThreadContext(thread_handle, &ctx);
 #ifdef _WIN64
 			printf("Registers: RIP=0x%p, RSP=0x%p, RBP=0x%p\n", (void*)ctx.Rip, (void*)ctx.Rsp, (void*)ctx.Rbp);
 #else
 			printf("Registers: EIP=0x%08lX, ESP=0x%08lX, EBP=0x%08lX\n", ctx.Eip, ctx.Esp, ctx.Ebp);
-#endif
+#endif 
 		}
-		else if (strcmp(cmd, "si") == 0) 
+		else if (strcmp(cmd, "si") == 0)
 		{
 			g_is_single_stepping = true;
 			SetSingleStepTrap(thread_handle, true);
 			break;
 		}
-		else if (strcmp(cmd, "so") == 0) 
+		else if (strcmp(cmd, "so") == 0)
 		{
 			HandleStepOver(process_handle, thread_handle);
 			break;
 		}
-		else if (strcmp(cmd, "out") == 0) 
+		else if (strcmp(cmd, "out") == 0)
 		{
 			HandleStepOut(process_handle, thread_handle);
 			break;
 		}
-		else if (strcmp(cmd, "c") == 0) 
+		else if (strcmp(cmd, "c") == 0)
 		{
 			g_is_single_stepping = false;
 			break;
 		}
-		else if (strcmp(cmd, "bp") == 0) 
+		else if (strcmp(cmd, "bt") == 0)
 		{
-			char file_arg[64];
-			int line_arg = 0;
-			if (scanf_s("%63s %d", file_arg, (unsigned int)sizeof(file_arg), &line_arg) > 0) 
-			{
-				SetLineBreakpoint(process_handle, file_arg, line_arg);
-			}
+			PrintCallStackBacktrace(process_handle, thread_handle);
 		}
-		else if (strcmp(cmd, "print") == 0) 
-		{
-			char var_name[64];
-			if (scanf_s("%63s", var_name, (unsigned int)sizeof(var_name)) > 0) 
-			{
-				PrintVariableByName(process_handle, thread_handle, var_name);
-			}
-		}
-		else if (strcmp(cmd, "set") == 0) 
-		{
-			char var_name[64];
-			int new_val = 0; if (scanf_s("%63s %d", var_name, (unsigned int)sizeof(var_name), &new_val) > 0) 
-			{
-				ModifyVariableByName(process_handle, thread_handle, var_name, new_val); 
-			}
-		}
-		else if (strcmp(cmd, "x") == 0) 
+		else if (strcmp(cmd, "x") == 0)
 		{
 			/*
 				When you hit your breakpoint inside some function,
@@ -424,15 +459,56 @@ void DebuggerConsolePrompt(HANDLE process_handle, HANDLE thread_handle)
 				[dbgr]> x 0x00AFFBF8 32
 			*/
 			void* target_addr = NULL;
-			size_t byte_count = 64; // Default count block length
-			if (scanf_s("%p %zu", &target_addr, &byte_count) > 0) 
+			size_t byte_count = 64;
+			if (scanf_s("%p %zu", &target_addr, &byte_count) > 0)
 			{
 				DumpMemoryHex(process_handle, target_addr, byte_count);
 			}
 		}
-		else if (strcmp(cmd, "bt") == 0) 
+		else if (strcmp(cmd, "bp") == 0)
 		{
-			PrintCallStackBacktrace(process_handle, thread_handle);
+			char file_arg[64];
+			int line_arg = 0;
+			if (scanf_s("%63s %d", file_arg, (unsigned int)sizeof(file_arg), &line_arg) > 0)
+			{
+				SetLineBreakpoint(process_handle, file_arg, line_arg);
+			}
+		}
+		else if (strcmp(cmd, "print") == 0)
+		{
+			char var_name[64];
+			if (scanf_s("%63s", var_name, (unsigned int)sizeof(var_name)) > 0)
+			{
+				PrintVariableByName(process_handle, thread_handle, var_name);
+			}
+		}
+		else if (strcmp(cmd, "set") == 0)
+		{
+			char var_name[64];
+			int new_val = 0;
+			if (scanf_s("%63s %d", var_name, (unsigned int)sizeof(var_name), &new_val) > 0)
+			{
+				ModifyVariableByName(process_handle, thread_handle, var_name, new_val);
+			}
+		}
+		else if (strcmp(cmd, "wp") == 0)
+		{
+			char var_name[64];
+			if (scanf_s("%63s", var_name, (unsigned int)sizeof(var_name)) > 0)
+			{
+				DWORD64 absolute_address = 0;
+				if (ResolveVariableAddress(process_handle, thread_handle, var_name, &absolute_address))
+				{
+					if (SetHardwareWatchpoint(thread_handle, (void*)absolute_address))
+					{
+						printf("[+] Successfully armed CPU Debug Register DR0 watchpoint at 0x%I64X\n", absolute_address);
+					}
+				}
+				else
+				{
+					printf("[-] Error: Unable to resolve variable location scope target.\n");
+				}
+			}
 		}
 	}
 }
@@ -445,14 +521,22 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	STARTUPINFOA si = { sizeof(si) }; PROCESS_INFORMATION pi; ZeroMemory(&si, sizeof(si)); ZeroMemory(&pi, sizeof(pi));
-	// CRITICAL PATH FIX: Pass ONLY target.exe to child cmdLine, preventing double name evaluation bugs
+#ifdef _WIN32
+	// Set the console output code page to UTF-8
+	SetConsoleOutputCP(CP_UTF8); // CP_UTF8 is defined as 65001
+#endif
+
+	STARTUPINFOA si = { sizeof(si) };
+	PROCESS_INFORMATION pi;
+	ZeroMemory(&si, sizeof(si));
+	ZeroMemory(&pi, sizeof(pi));
 	char cmdLine[MAX_PATH] = { 0 };
 	sprintf_s(cmdLine, sizeof(cmdLine), "\"%s\"", argv[1]);
 	BOOL success = CreateProcessA(NULL, cmdLine, NULL, NULL, FALSE, DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS, NULL, NULL, &si, &pi);
 	if (!success)
 	{
-		printf("[-] Target load error: %lu\n", GetLastError()); return 1;
+		printf("[-] Target load error: %lu\n", GetLastError());
+		return 1;
 	}
 
 	DEBUG_EVENT de;
@@ -480,17 +564,20 @@ int main(int argc, char* argv[])
 					printf("[+] Symbol Engine initialized successfully.\n");
 					char buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
 					PSYMBOL_INFO pSymbol = (PSYMBOL_INFO)buffer;
-					pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO); pSymbol->MaxNameLen = MAX_SYM_NAME;
+					pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+					pSymbol->MaxNameLen = MAX_SYM_NAME;
 					if (SymFromName(pi.hProcess, "main", pSymbol))
 					{
 						AddBreakpoint(pi.hProcess, (void*)pSymbol->Address);
-						printf("[] Pre-registered core entrance breakpoint at 0x%p.\n", (void*)pSymbol->Address);
+						printf("[*] Pre-registered core entrance breakpoint at 0x%I64X.\n", pSymbol->Address);
 					}
 				}
 			}
+
 			break;
 
-		case EXCEPTION_DEBUG_EVENT: {
+		case EXCEPTION_DEBUG_EVENT:
+		{
 			DWORD exception_code = de.u.Exception.ExceptionRecord.ExceptionCode;
 			void* exception_address = de.u.Exception.ExceptionRecord.ExceptionAddress;
 			if (exception_code == EXCEPTION_BREAKPOINT)
@@ -509,9 +596,11 @@ int main(int argc, char* argv[])
 				{
 					if (g_breakpoints[i].is_set && g_breakpoints[i].address == target_bp_addr)
 					{
-						hit_index = i; break;
+						hit_index = i;
+						break;
 					}
 				}
+
 				if (hit_index != -1)
 				{
 					WriteTargetMemory(pi.hProcess, g_breakpoints[hit_index].address, &g_breakpoints[hit_index].original_byte, 1);
@@ -532,14 +621,13 @@ int main(int argc, char* argv[])
 					SetThreadContext(pi.hThread, &ctx);
 					if (!was_temporary)
 					{
-						printf("\n[+] Breakpoint Hit at address: 0x%p\n", saved_address);
+						printf("\n[+] Line Breakpoint Hit at address: 0x%p\n", saved_address);
 					}
 					else
 					{
 						printf("\n[+] Step Complete.\n");
 					}
 					DebuggerConsolePrompt(pi.hProcess, pi.hThread);
-					// Re-inject breakpoint logic if persistent execution continue is requested
 					if (!was_temporary && !g_is_single_stepping)
 					{
 						SetSingleStepTrap(pi.hThread, true);
@@ -557,6 +645,18 @@ int main(int argc, char* argv[])
 			}
 			else if (exception_code == EXCEPTION_SINGLE_STEP)
 			{
+				CONTEXT debug_ctx;
+				debug_ctx.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+				GetThreadContext(pi.hThread, &debug_ctx);
+				if (g_watched_address != NULL && (debug_ctx.Dr6 & 0x1))
+				{
+					printf("\n[🔥 HARDWARE WATCHPOINT TRIGGERED] Memory write modification captured!\n");
+					debug_ctx.Dr6 &= ~0x1;
+					SetThreadContext(pi.hThread, &debug_ctx);
+					ClearHardwareWatchpoint(pi.hThread);
+					DebuggerConsolePrompt(pi.hProcess, pi.hThread);
+				}
+
 				for (int i = 0; i < MAX_BREAKPOINTS; i++)
 				{
 					if (g_breakpoints[i].is_set && g_breakpoints[i].is_temporary && g_breakpoints[i].address != NULL)
@@ -566,6 +666,7 @@ int main(int argc, char* argv[])
 						g_breakpoints[i].is_temporary = false;
 					}
 				}
+
 				if (g_is_single_stepping)
 				{
 					DebuggerConsolePrompt(pi.hProcess, pi.hThread);
@@ -581,14 +682,18 @@ int main(int argc, char* argv[])
 			}
 			break;
 		}
+
 		case EXIT_PROCESS_DEBUG_EVENT:
 			keeps_debugging = false;
 			break;
 		}
+
 		ContinueDebugEvent(de.dwProcessId, de.dwThreadId, continue_status);
 	}
+
 	if (g_symbols_initialized)
 		SymCleanup(pi.hProcess);
+
 	CloseHandle(pi.hProcess);
 	CloseHandle(pi.hThread);
 	return 0;

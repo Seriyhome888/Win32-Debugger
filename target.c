@@ -1,3 +1,4 @@
+// target.c
 #include <stdio.h>
 
 void calculate_values(int factor) {
@@ -7,7 +8,7 @@ void calculate_values(int factor) {
     int result = factor * secret_number; 
     printf("[Target Output] Result calculated: %d\n", result);
 
-    int secret_value = 10 + result;
+    int secret_value = 10 + result; // <-- THIS LINE MODIFIES secret_value
 }
 
 int main() {
