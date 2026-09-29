@@ -21,3 +21,9 @@
     - query your registers first using 'r' command, to grab the active stack pointer (ESP or EBP);
     - Execute the dump command 'x' directly by passing that memory registry pointer value:
 	- x 0x00AFFBF8 32
+  - To print variable value by its name enter:
+    - print secret_value
+    - or:
+    - print my_array
+    - or:
+    - print my_ptr
