@@ -12,4 +12,12 @@
 - Execution Controls : Manages hardware trace steps(si), step - overs(so), and parent function returns(out)
 
   # Usage
-  Run Development Command Prompt for Visual Studio, execute run_session.bat. Enter 'c' to continue, 'help' to display supported commands
+  - Run Development Command Prompt for Visual Studio, execute run_session.bat. Enter 'c' to continue, 'help' to display supported commands
+  - To set up breakpoint in line enter
+    bp source_file_name line_number
+    for example:
+    bp target.c 5
+  - To dsplay memory dump :
+    - query your registers first using 'r' command, to grab the active stack pointer (ESP or EBP);
+    - Execute the dump command 'x' directly by passing that memory registry pointer value:
+				x 0x00AFFBF8 32
