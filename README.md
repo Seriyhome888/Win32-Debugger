@@ -13,7 +13,7 @@
 
   # Usage
   - Run Development Command Prompt for Visual Studio, execute run_session.bat.
-  - It will compile and start sample debug session with process achieved by compiling in debug mode of supplied file target.c
+  - It will compile and start sample debug session with process obtained by compiling in debug mode of supplied file target.c
   - Enter 'c' to continue, 'help' to display supported commands
   - To set up breakpoint in line enter:
     - bp source_file_name line_number
