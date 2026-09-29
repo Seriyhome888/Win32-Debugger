@@ -182,29 +182,90 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 	if (sym_tag == SymTagPointerType || dereference) {
 		DWORD64 target_pointer_value = 0;
 
+		// 1. Read the actual address stored inside the pointer variable
 		if (!ReadTargetMemory(process_handle, (void*)absolute_address, &target_pointer_value, sizeof(void*))) {
 			printf("[-] Failed to read pointer variable base value.\n");
 			return;
 		}
 
+		// 2. Determine what type of data the pointer points to
 		DWORD child_type_id = 0;
 		DWORD64 child_size = 0;
 		SymGetTypeInfo(process_handle, mod_base, type_id, TI_GET_TYPEID, &child_type_id);
 		SymGetTypeInfo(process_handle, mod_base, child_type_id, TI_GET_LENGTH, &child_size);
 
+		// 3. Handle character arrays (Strings)
 		if (child_size == 1 && !dereference) {
 			char str_buffer[256] = { 0 };
-			ReadTargetMemory(process_handle, (void*)target_pointer_value, str_buffer, sizeof(str_buffer) - 1);
-			printf("[+] Variable '%s' (char*) points to string literal: \"%s\" (at 0x%I64X)\n", var_name, str_buffer, target_pointer_value);
-		}
-		else {
-			int pointed_value = 0;
-			if (ReadTargetMemory(process_handle, (void*)target_pointer_value, &pointed_value, sizeof(pointed_value))) {
-				printf("[+] Expression Dereference '*%s' (at 0x%I64X) target value: %d\n", var_name, target_pointer_value, pointed_value);
+			bool read_success = false;
+			size_t bytes_gathered = 0;
+
+			// Read byte-by-byte up to your expected buffer threshold or until a null-terminator
+			for (size_t i = 0; i < sizeof(str_buffer) - 1; i++) {
+				char single_byte = 0;
+				void* current_ptr = (BYTE*)target_pointer_value + i;
+
+				if (ReadTargetMemory(process_handle, current_ptr, &single_byte, 1)) {
+					read_success = true; // We successfully read at least the start
+					str_buffer[i] = single_byte;
+					bytes_gathered++;
+					if (single_byte == '\0') break; // Safe termination
+				}
+				else {
+					// Hit unmapped memory boundary or end of heap allocation block
+					break;
+				}
+			}
+
+			if (read_success && bytes_gathered > 0) {
+				printf("[+] Variable '%s' (char*) points to string: \"%s\" (at 0x%I64X)\n",
+					var_name, str_buffer, target_pointer_value);
 			}
 			else {
-				printf("[-] Failed to dereference pointer address location 0x%I64X\n", target_pointer_value);
+				DWORD err = GetLastError();
+				printf("[-] Complete failure reading string at 0x%I64X. Win32 Error Code: %lu\n",
+					target_pointer_value, err);
 			}
+			return;
+		}
+
+		// 4. Handle Dynamic Arrays vs Single Scalar Pointers
+		DWORD elements_to_print = 4; // Your default preview limit for actual arrays
+
+		// Query the child symbol tag to see WHAT we are pointing to
+		DWORD child_sym_tag = 0;
+		SymGetTypeInfo(process_handle, mod_base, child_type_id, TI_GET_SYMTAG, &child_sym_tag);
+
+		// CRITICAL FIX: If it points directly to a base scalar type, we only print 1 element!
+		if (child_sym_tag == SymTagBaseType) {
+			elements_to_print = 1;
+		}
+
+		if (elements_to_print == 1) {
+			// Treat as a clean single scalar pointer dereference
+			int scalar_val = 0;
+			if (ReadTargetMemory(process_handle, (void*)target_pointer_value, &scalar_val, (size_t)child_size)) {
+				printf("[+] Variable '%s' (int*) points to value: %d (at 0x%I64X)\n", var_name, scalar_val, target_pointer_value);
+			}
+			else {
+				printf("[-] Failed to read pointer destination memory at 0x%I64X\n", target_pointer_value);
+			}
+		}
+		else {
+			// Treat as a dynamic array layout
+			printf("[+] Variable '%s' resolved as Dynamic Array at 0x%I64X:\n", var_name, target_pointer_value);
+			printf("    Values: [ ");
+			for (DWORD i = 0; i < elements_to_print; i++) {
+				void* elem_addr = (BYTE*)target_pointer_value + (i * child_size);
+				int scalar_val = 0;
+				if (ReadTargetMemory(process_handle, elem_addr, &scalar_val, (size_t)child_size)) {
+					printf("%d ", scalar_val);
+				}
+				else {
+					break;
+				}
+			}
+			printf("... ]\n");
 		}
 		return;
 	}
