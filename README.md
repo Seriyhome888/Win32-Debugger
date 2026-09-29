@@ -33,3 +33,6 @@
     - set variable_name new_value
     - for example:
     - set secret_value 5
+   
+<img width="3840" height="2016" alt="image" src="https://github.com/user-attachments/assets/bb765df5-7677-400e-99c2-bb57e6d8797e" />
+    
