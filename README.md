@@ -27,3 +27,7 @@
     - print my_array
     - or:
     - print my_ptr
+  - To set variable value by variable name enter:
+    - set variable_name new_value
+    - for example:
+    - set secret_value 5
