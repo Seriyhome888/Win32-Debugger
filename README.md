@@ -20,4 +20,4 @@
   - To display memory dump :
     - query your registers first using 'r' command, to grab the active stack pointer (ESP or EBP);
     - Execute the dump command 'x' directly by passing that memory registry pointer value:
-				x 0x00AFFBF8 32
+	- x 0x00AFFBF8 32
