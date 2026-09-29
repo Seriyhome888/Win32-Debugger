@@ -13,7 +13,7 @@ void calculate_values(int factor) {
     
     // Test Variables for Expression Evaluation
     char* my_string = "Hello Debugger!";
-    int my_array[5] = {10, 20, 30, 40, 50};
+    int my_array[8] = {10, 20, 30, 40, 50, 60, 70, 80};
     int* my_ptr = &secret_number;
 
     int result = factor * secret_number; 
