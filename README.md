@@ -6,3 +6,10 @@
 - Persistent structural line breakpoint tracking layouts
 - Live memory space manipulation modules (set, print, x hex dumps)
 - Active caller evaluation backtraces (bt stack frame unwinding loops)
+- PDB Expression Parsing : Evaluates raw string pointers(char*), maps multi - element local memory arrays, and handles dereferences(print* my_ptr)
+- Hardware Watchpoints : Leverages CPU debug registers(DR0 / DR7) to capture memory writes natively
+- Stack backtracing& Hex Dumps : Includes StackWalk64 call frame traces(bt) and 16 - byte aligned binary hex matrix representations(x)
+- Execution Controls : Manages hardware trace steps(si), step - overs(so), and parent function returns(out)
+
+  # Usage
+  Run Development Command Prompt for Visual Studio, execute run_session.bat. Enter 'c' to continue, 'help' to display supported commands
