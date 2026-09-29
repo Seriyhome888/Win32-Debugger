@@ -1,6 +1,12 @@
 // target.c
 #include <stdio.h>
 
+struct Player {
+    int id;       // 4 bytes
+    int health;   // 4 bytes
+    char* name;
+};
+
 void calculate_values(int factor) {
     int secret_number = 42; 
     volatile int stack_anchor = 0; 
@@ -14,6 +20,8 @@ void calculate_values(int factor) {
     printf("[Target Output] Result calculated: %d\n", result);
 
     int secret_value = 10 + result; 
+
+    struct Player player1 = { 5, 100, "Super"};
 
     char* my_str = "abc";
 

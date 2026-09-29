@@ -20,7 +20,8 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo [*] Compiling Custom Win32 Symbol Debugger (x86)...
-cl.exe /nologo /O2 /Fewin32_debugger_symbols.exe win32_debugger_symbols.c dbghelp.lib /link /MACHINE:X86
+:: FIX: Changed /O2 to /Od to preserve frame variables within the debugger engine itself
+cl.exe /nologo /Od /Fewin32_debugger_symbols.exe win32_debugger_symbols.c dbghelp.lib /link /MACHINE:X86
 if %ERRORLEVEL% NEQ 0 ( echo [-] Compilation failed. & pause & exit /b 1 )
 
 echo [*] Compiling Target Process Application with symbols (x86)...
