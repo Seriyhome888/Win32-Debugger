@@ -43,6 +43,260 @@ typedef struct {
 	bool found;
 } FindVariableContext;
 
+bool ReadTargetMemory(void* process_handle, void* address, void* buffer, size_t size)
+{
+	SIZE_T bytes_read;
+	return ReadProcessMemory((HANDLE)process_handle, address, buffer, size, &bytes_read) && (bytes_read == size);
+}
+
+void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWORD64 absolute_address, DWORD flags, const char* sym_name) 
+{
+	DWORD sym_tag = 0;
+	SymGetTypeInfo(process_handle, mod_base, type_id, TI_GET_SYMTAG, &sym_tag);
+
+	// --- CASE 1: Arrays ---
+	if (sym_tag == SymTagArrayType) 
+	{
+		DWORD count = 0;
+		DWORD type_id_child = 0;
+		DWORD64 element_size = 0; // Capture explicit size of an individual element
+
+		SymGetTypeInfo(process_handle, mod_base, type_id, TI_GET_COUNT, &count);
+		SymGetTypeInfo(process_handle, mod_base, type_id, TI_GET_TYPEID, &type_id_child);
+		SymGetTypeInfo(process_handle, mod_base, type_id_child, TI_GET_LENGTH, &element_size);
+
+		// If the symbol engine doesn't explicitly return a count, fallback to 5 elements safely
+		if (count == 0) count = 5;
+
+		printf("    %s = [ ", sym_name);
+		for (DWORD i = 0; i < count; i++) 
+		{
+			int element_val = 0;
+			// Multiply index iteration explicitly against the individual child element byte size
+			void* elem_addr = (BYTE*)absolute_address + (i * element_size);
+
+			if (ReadTargetMemory(process_handle, elem_addr, &element_val, (size_t)element_size)) 
+			{
+				printf("%d ", element_val);
+			}
+			else 
+			{
+				break;
+			}
+		}
+
+		printf("] (Array of %lu elements)\n", count);
+		return;
+	}
+
+	// --- CASE 2: Structs and Unions (UDT) ---
+	if (sym_tag == SymTagUDT) 
+	{
+		DWORD children_count = 0;
+		SymGetTypeInfo(process_handle, mod_base, type_id, TI_GET_CHILDRENCOUNT, &children_count);
+
+		printf("    %s = Struct/Union (Members: %lu) at 0x%I64X:\n    {\n", sym_name, children_count, absolute_address);
+		if (children_count == 0) 
+		{
+			printf("        <empty>\n    }\n");
+			return;
+		}
+
+		DWORD find_children_size = sizeof(TI_FINDCHILDREN_PARAMS) + (children_count * sizeof(ULONG));
+		TI_FINDCHILDREN_PARAMS* pParams = (TI_FINDCHILDREN_PARAMS*)malloc(find_children_size);
+		if (!pParams) return;
+
+		ZeroMemory(pParams, find_children_size);
+		pParams->Count = children_count;
+
+		if (SymGetTypeInfo(process_handle, mod_base, type_id, TI_FINDCHILDREN, pParams)) 
+		{
+			for (DWORD i = 0; i < children_count; i++) 
+			{
+				ULONG child_id = pParams->ChildId[i];
+				WCHAR* child_name_w = NULL;
+				DWORD member_offset = 0;
+				DWORD member_type_id = 0;
+				DWORD64 member_size = 0;
+				DWORD member_sym_tag = 0;
+
+				SymGetTypeInfo(process_handle, mod_base, child_id, TI_GET_SYMNAME, &child_name_w);
+				SymGetTypeInfo(process_handle, mod_base, child_id, TI_GET_OFFSET, &member_offset);
+				SymGetTypeInfo(process_handle, mod_base, child_id, TI_GET_TYPEID, &member_type_id);
+				SymGetTypeInfo(process_handle, mod_base, member_type_id, TI_GET_LENGTH, &member_size);
+				SymGetTypeInfo(process_handle, mod_base, member_type_id, TI_GET_SYMTAG, &member_sym_tag);
+
+				void* member_absolute_addr = (BYTE*)absolute_address + member_offset;
+
+				if (child_name_w) 
+				{
+					wprintf(L"        .%ls [Offset: +%lu, Size: %I64u]: ", child_name_w, member_offset, member_size);
+
+					if (member_sym_tag == SymTagBaseType) 
+					{
+						long long scalar_value = 0;
+						if (ReadTargetMemory(process_handle, member_absolute_addr, &scalar_value, (size_t)member_size)) 
+						{
+							if (member_size == 1) printf("%d\n", (char)scalar_value);
+							else if (member_size == 2) printf("%d\n", (short)scalar_value);
+							else if (member_size == 4) printf("%d\n", (int)scalar_value);
+							else printf("%I64d\n", scalar_value);
+						}
+						else printf("<failed read>\n");
+					}
+					else if (member_sym_tag == SymTagPointerType) 
+					{
+						DWORD64 target_pointer_value = 0;
+						if (ReadTargetMemory(process_handle, member_absolute_addr, &target_pointer_value, (size_t)member_size)) 
+						{
+							target_pointer_value &= 0xFFFFFFFF;
+							DWORD ptr_child_type_id = 0;
+							DWORD64 ptr_child_size = 0;
+							SymGetTypeInfo(process_handle, mod_base, member_type_id, TI_GET_TYPEID, &ptr_child_type_id);
+							SymGetTypeInfo(process_handle, mod_base, ptr_child_type_id, TI_GET_LENGTH, &ptr_child_size);
+
+							if (ptr_child_size == 1) 
+							{
+								char str_buffer[64] = { 0 };
+								bool read_any = false;
+								for (size_t k = 0; k < sizeof(str_buffer) - 1; k++) 
+								{
+									char b = 0;
+									if (ReadTargetMemory(process_handle, (void*)((DWORD_PTR)target_pointer_value + k), &b, 1)) 
+									{
+										read_any = true;
+										str_buffer[k] = b;
+										if (b == '\0') break;
+									}
+									else break;
+								}
+								if (read_any) printf("0x%I64X -> \"%s\"\n", target_pointer_value, str_buffer);
+								else printf("0x%I64X -> <unmapped>\n", target_pointer_value);
+							}
+							else 
+							{
+								printf("0x%I64X -> points to size %I64u\n", target_pointer_value, ptr_child_size);
+							}
+						}
+						else printf("<failed read pointer>\n");
+					}
+					else printf("<complex child struct>\n");
+
+					LocalFree(child_name_w);
+				}
+			}
+		}
+		printf("    }\n");
+		free(pParams);
+		return;
+	}
+
+	// --- CASE 3: Pointers and Scalars ---
+	DWORD child_type_id = 0;
+	DWORD64 child_size = 0;
+	SymGetTypeInfo(process_handle, mod_base, type_id, TI_GET_TYPEID, &child_type_id);
+	SymGetTypeInfo(process_handle, mod_base, child_type_id, TI_GET_LENGTH, &child_size);
+
+	if (sym_tag == SymTagPointerType) 
+	{
+		DWORD64 target_pointer_value = 0;
+		if (ReadTargetMemory(process_handle, (void*)absolute_address, &target_pointer_value, sizeof(void*))) 
+		{
+			target_pointer_value &= 0xFFFFFFFF;
+			if (child_size == 1) 
+			{ // char*
+				char str_buffer[64] = { 0 };
+				for (size_t k = 0; k < sizeof(str_buffer) - 1; k++) 
+				{
+					char b = 0;
+					if (ReadTargetMemory(process_handle, (void*)((DWORD_PTR)target_pointer_value + k), &b, 1)) 
+					{
+						str_buffer[k] = b;
+						if (b == '\0') break;
+					}
+					else break;
+				}
+				printf("    %s (char*) = 0x%I64X -> \"%s\"\n", sym_name, target_pointer_value, str_buffer);
+			}
+			else 
+			{
+				printf("    %s (pointer) = 0x%I64X\n", sym_name, target_pointer_value);
+			}
+		}
+		return;
+	}
+
+	// Default: Scalar Value
+	int scalar_value = 0;
+	if (ReadTargetMemory(process_handle, (void*)absolute_address, &scalar_value, sizeof(scalar_value))) 
+	{
+		printf("    %s = %d\n", sym_name, scalar_value);
+	}
+}
+
+typedef struct {
+	HANDLE process_handle;
+	CONTEXT* ctx;
+	DWORD64 mod_base;
+} DumpLocalsContext;
+
+BOOL CALLBACK EnumAllLocalsCallback(PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext) {
+	DumpLocalsContext* context = (DumpLocalsContext*)UserContext;
+
+	// Ignore compiler-generated internal placeholders or functions
+	if (pSymInfo->Flags & SYMFLAG_CLR_TOKEN) return TRUE;
+
+	DWORD64 absolute_address = 0;
+
+	if (pSymInfo->Flags & SYMFLAG_REGREL) {
+		int ebp_base = (int)context->ctx->Ebp;
+		int esp_base = (int)context->ctx->Esp;
+		int signed_displacement = (int)(pSymInfo->Address & 0xFFFFFFFF);
+
+		if (pSymInfo->Register == 23 || pSymInfo->Register == 7) {
+			absolute_address = (DWORD64)(esp_base + signed_displacement);
+		}
+		else {
+			absolute_address = (DWORD64)(ebp_base + signed_displacement);
+		}
+	}
+	else if (pSymInfo->Flags & SYMFLAG_REGISTER) {
+		printf("    %s = <Stored inside CPU register>\n", pSymInfo->Name);
+		return TRUE;
+	}
+	else {
+		absolute_address = pSymInfo->Address;
+	}
+
+	// Run our helper layout engine!
+	DumpSymbolData(context->process_handle, pSymInfo->ModBase, pSymInfo->TypeIndex, absolute_address, pSymInfo->Flags, pSymInfo->Name);
+
+	return TRUE;
+}
+
+void PrintLocalVariables(HANDLE process_handle, HANDLE thread_handle) {
+	if (!g_symbols_initialized) return;
+
+	CONTEXT ctx;
+	ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+	if (!GetThreadContext(thread_handle, &ctx)) return;
+
+	IMAGEHLP_STACK_FRAME sf = { 0 };
+	sf.InstructionOffset = ctx.Eip;
+	sf.FrameOffset = ctx.Ebp;
+	sf.StackOffset = ctx.Esp;
+
+	SymSetContext(process_handle, &sf, NULL);
+
+	printf("[*] Dumping all local variables inside active stack layer:\n");
+
+	DumpLocalsContext context = { process_handle, &ctx, 0 };
+	// Passing 0 as BaseOfDll instructs DbgHelp to dump the immediate frame local scope variables
+	if (!SymEnumSymbols(process_handle, 0, NULL, EnumAllLocalsCallback, &context)) {
+		printf("[-] Failed to query frame symbols. Error: %lu\n", GetLastError());
+	}
+}
+
 // Callback function executed for each symbol found within the current local frame scope
 BOOL CALLBACK EnumSymbolsCallback(PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext) 
 {
@@ -58,12 +312,6 @@ BOOL CALLBACK EnumSymbolsCallback(PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID
 		return FALSE;
 	}
 	return TRUE;
-}
-
-bool ReadTargetMemory(void* process_handle, void* address, void* buffer, size_t size) 
-{
-	SIZE_T bytes_read;
-	return ReadProcessMemory((HANDLE)process_handle, address, buffer, size, &bytes_read) && (bytes_read == size);
 }
 
 bool WriteTargetMemory(void* process_handle, void* address, const void* buffer, size_t size) 
@@ -793,6 +1041,10 @@ void DebuggerConsolePrompt(HANDLE process_handle, HANDLE thread_handle)
 					}
 				}
 			}
+		}
+		else if (strcmp(cmd, "locals") == 0 || strcmp(cmd, "info locals") == 0) 
+		{
+			PrintLocalVariables(process_handle, thread_handle);
 		}
 	}
 }
