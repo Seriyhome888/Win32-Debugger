@@ -954,11 +954,11 @@ void DebuggerConsolePrompt(HANDLE process_handle, HANDLE thread_handle)
 			printf("         \n  out           - Step Out"); 
 			printf("         \n  c             - Continue"); 
 			printf("         \n  bt            - Backtrace");
-			printf("         \n  x             - Hex dump");
+			printf("         \n  x             - Hex dump(from r command: x 0x00AFFBF8 32)");
 			printf("         \n  print         - Evaluate variable / pointer(e.g., print my_ptr, print my_array)");
-			printf("         \n  set           - Set value");
+			printf("         \n  set           - Set value(e.g., set variable_name variable_value)");
 			printf("         \n  bp            - Set line breakpoint(e.g., bp target.c 27)");
-			printf("         \n  wp            - Set Watchpoint");
+			printf("         \n  wp            - Set Watchpoint(e.g., wp variable_name)");
 			printf("		 \n  [info] locals - Print local scope varaibled info\n");
 		}
 		else if (strcmp(cmd, "r") == 0)
