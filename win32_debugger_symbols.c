@@ -943,11 +943,23 @@ void DebuggerConsolePrompt(HANDLE process_handle, HANDLE thread_handle)
 	char cmd[64];
 	while (true)
 	{
-		printf("\n[dbgr]> "); if (scanf_s("%63s", cmd, (unsigned int)sizeof(cmd)) <= 0) continue;
+		printf("\n[dbgr]> "); 
+		if (scanf_s("%63s", cmd, (unsigned int)sizeof(cmd)) <= 0) continue;
 
 		if (strcmp(cmd, "help") == 0)
 		{
-			printf("Commands:\n  r            - Print registers\n  si           - Step Into\n  so           - Step Over\n  out          - Step Out\n  c            - Continue\n  bt           - Backtrace\n  x   - Hex dump\n  print  - Evaluate variable/pointer (e.g., print my_ptr, print my_array)\n  set    - Set value\n  bp     - Set line breakpoint\n  wp        - Set Watchpoint\n");
+			printf("Commands:\n  r             - Print registers");
+			printf("         \n  si            - Step Into");
+			printf("		 \n  so            - Step Over");
+			printf("         \n  out           - Step Out"); 
+			printf("         \n  c             - Continue"); 
+			printf("         \n  bt            - Backtrace");
+			printf("         \n  x             - Hex dump");
+			printf("         \n  print         - Evaluate variable / pointer(e.g., print my_ptr, print my_array)");
+			printf("         \n  set           - Set value");
+			printf("         \n  bp            - Set line breakpoint(e.g., bp target.c 27)");
+			printf("         \n  wp            - Set Watchpoint");
+			printf("		 \n  [info] locals - Print local scope varaibled info\n");
 		}
 		else if (strcmp(cmd, "r") == 0)
 		{
