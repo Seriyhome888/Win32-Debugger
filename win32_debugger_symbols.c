@@ -49,13 +49,13 @@ bool ReadTargetMemory(void* process_handle, void* address, void* buffer, size_t 
 	return ReadProcessMemory((HANDLE)process_handle, address, buffer, size, &bytes_read) && (bytes_read == size);
 }
 
-void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWORD64 absolute_address, DWORD flags, const char* sym_name) 
+void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWORD64 absolute_address, DWORD flags, const char* sym_name)
 {
 	DWORD sym_tag = 0;
 	SymGetTypeInfo(process_handle, mod_base, type_id, TI_GET_SYMTAG, &sym_tag);
 
 	// --- CASE 1: Arrays ---
-	if (sym_tag == SymTagArrayType) 
+	if (sym_tag == SymTagArrayType)
 	{
 		DWORD count = 0;
 		DWORD type_id_child = 0;
@@ -69,17 +69,17 @@ void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWOR
 		if (count == 0) count = 5;
 
 		printf("    %s = [ ", sym_name);
-		for (DWORD i = 0; i < count; i++) 
+		for (DWORD i = 0; i < count; i++)
 		{
 			int element_val = 0;
 			// Multiply index iteration explicitly against the individual child element byte size
 			void* elem_addr = (BYTE*)absolute_address + (i * element_size);
 
-			if (ReadTargetMemory(process_handle, elem_addr, &element_val, (size_t)element_size)) 
+			if (ReadTargetMemory(process_handle, elem_addr, &element_val, (size_t)element_size))
 			{
 				printf("%d ", element_val);
 			}
-			else 
+			else
 			{
 				break;
 			}
@@ -90,13 +90,13 @@ void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWOR
 	}
 
 	// --- CASE 2: Structs and Unions (UDT) ---
-	if (sym_tag == SymTagUDT) 
+	if (sym_tag == SymTagUDT)
 	{
 		DWORD children_count = 0;
 		SymGetTypeInfo(process_handle, mod_base, type_id, TI_GET_CHILDRENCOUNT, &children_count);
 
 		printf("    %s = Struct/Union (Members: %lu) at 0x%I64X:\n    {\n", sym_name, children_count, absolute_address);
-		if (children_count == 0) 
+		if (children_count == 0)
 		{
 			printf("        <empty>\n    }\n");
 			return;
@@ -109,9 +109,9 @@ void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWOR
 		ZeroMemory(pParams, find_children_size);
 		pParams->Count = children_count;
 
-		if (SymGetTypeInfo(process_handle, mod_base, type_id, TI_FINDCHILDREN, pParams)) 
+		if (SymGetTypeInfo(process_handle, mod_base, type_id, TI_FINDCHILDREN, pParams))
 		{
-			for (DWORD i = 0; i < children_count; i++) 
+			for (DWORD i = 0; i < children_count; i++)
 			{
 				ULONG child_id = pParams->ChildId[i];
 				WCHAR* child_name_w = NULL;
@@ -128,14 +128,14 @@ void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWOR
 
 				void* member_absolute_addr = (BYTE*)absolute_address + member_offset;
 
-				if (child_name_w) 
+				if (child_name_w)
 				{
 					wprintf(L"        .%ls [Offset: +%lu, Size: %I64u]: ", child_name_w, member_offset, member_size);
 
-					if (member_sym_tag == SymTagBaseType) 
+					if (member_sym_tag == SymTagBaseType)
 					{
 						long long scalar_value = 0;
-						if (ReadTargetMemory(process_handle, member_absolute_addr, &scalar_value, (size_t)member_size)) 
+						if (ReadTargetMemory(process_handle, member_absolute_addr, &scalar_value, (size_t)member_size))
 						{
 							if (member_size == 1) printf("%d\n", (char)scalar_value);
 							else if (member_size == 2) printf("%d\n", (short)scalar_value);
@@ -144,10 +144,10 @@ void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWOR
 						}
 						else printf("<failed read>\n");
 					}
-					else if (member_sym_tag == SymTagPointerType) 
+					else if (member_sym_tag == SymTagPointerType)
 					{
 						DWORD64 target_pointer_value = 0;
-						if (ReadTargetMemory(process_handle, member_absolute_addr, &target_pointer_value, (size_t)member_size)) 
+						if (ReadTargetMemory(process_handle, member_absolute_addr, &target_pointer_value, (size_t)member_size))
 						{
 							target_pointer_value &= 0xFFFFFFFF;
 							DWORD ptr_child_type_id = 0;
@@ -155,14 +155,14 @@ void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWOR
 							SymGetTypeInfo(process_handle, mod_base, member_type_id, TI_GET_TYPEID, &ptr_child_type_id);
 							SymGetTypeInfo(process_handle, mod_base, ptr_child_type_id, TI_GET_LENGTH, &ptr_child_size);
 
-							if (ptr_child_size == 1) 
+							if (ptr_child_size == 1)
 							{
 								char str_buffer[64] = { 0 };
 								bool read_any = false;
-								for (size_t k = 0; k < sizeof(str_buffer) - 1; k++) 
+								for (size_t k = 0; k < sizeof(str_buffer) - 1; k++)
 								{
 									char b = 0;
-									if (ReadTargetMemory(process_handle, (void*)((DWORD_PTR)target_pointer_value + k), &b, 1)) 
+									if (ReadTargetMemory(process_handle, (void*)((DWORD_PTR)target_pointer_value + k), &b, 1))
 									{
 										read_any = true;
 										str_buffer[k] = b;
@@ -173,7 +173,7 @@ void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWOR
 								if (read_any) printf("0x%I64X -> \"%s\"\n", target_pointer_value, str_buffer);
 								else printf("0x%I64X -> <unmapped>\n", target_pointer_value);
 							}
-							else 
+							else
 							{
 								printf("0x%I64X -> points to size %I64u\n", target_pointer_value, ptr_child_size);
 							}
@@ -197,19 +197,19 @@ void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWOR
 	SymGetTypeInfo(process_handle, mod_base, type_id, TI_GET_TYPEID, &child_type_id);
 	SymGetTypeInfo(process_handle, mod_base, child_type_id, TI_GET_LENGTH, &child_size);
 
-	if (sym_tag == SymTagPointerType) 
+	if (sym_tag == SymTagPointerType)
 	{
 		DWORD64 target_pointer_value = 0;
-		if (ReadTargetMemory(process_handle, (void*)absolute_address, &target_pointer_value, sizeof(void*))) 
+		if (ReadTargetMemory(process_handle, (void*)absolute_address, &target_pointer_value, sizeof(void*)))
 		{
 			target_pointer_value &= 0xFFFFFFFF;
-			if (child_size == 1) 
+			if (child_size == 1)
 			{ // char*
 				char str_buffer[64] = { 0 };
-				for (size_t k = 0; k < sizeof(str_buffer) - 1; k++) 
+				for (size_t k = 0; k < sizeof(str_buffer) - 1; k++)
 				{
 					char b = 0;
-					if (ReadTargetMemory(process_handle, (void*)((DWORD_PTR)target_pointer_value + k), &b, 1)) 
+					if (ReadTargetMemory(process_handle, (void*)((DWORD_PTR)target_pointer_value + k), &b, 1))
 					{
 						str_buffer[k] = b;
 						if (b == '\0') break;
@@ -218,7 +218,7 @@ void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWOR
 				}
 				printf("    %s (char*) = 0x%I64X -> \"%s\"\n", sym_name, target_pointer_value, str_buffer);
 			}
-			else 
+			else
 			{
 				printf("    %s (pointer) = 0x%I64X\n", sym_name, target_pointer_value);
 			}
@@ -228,7 +228,7 @@ void DumpSymbolData(HANDLE process_handle, DWORD64 mod_base, DWORD type_id, DWOR
 
 	// Default: Scalar Value
 	int scalar_value = 0;
-	if (ReadTargetMemory(process_handle, (void*)absolute_address, &scalar_value, sizeof(scalar_value))) 
+	if (ReadTargetMemory(process_handle, (void*)absolute_address, &scalar_value, sizeof(scalar_value)))
 	{
 		printf("    %s = %d\n", sym_name, scalar_value);
 	}
@@ -298,10 +298,10 @@ void PrintLocalVariables(HANDLE process_handle, HANDLE thread_handle) {
 }
 
 // Callback function executed for each symbol found within the current local frame scope
-BOOL CALLBACK EnumSymbolsCallback(PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext) 
+BOOL CALLBACK EnumSymbolsCallback(PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID UserContext)
 {
 	FindVariableContext* context = (FindVariableContext*)UserContext;
-	if (strcmp(pSymInfo->Name, context->target_name) == 0) 
+	if (strcmp(pSymInfo->Name, context->target_name) == 0)
 	{
 		context->address = pSymInfo->Address;
 		context->type_id = pSymInfo->TypeIndex;
@@ -314,27 +314,27 @@ BOOL CALLBACK EnumSymbolsCallback(PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID
 	return TRUE;
 }
 
-bool WriteTargetMemory(void* process_handle, void* address, const void* buffer, size_t size) 
+bool WriteTargetMemory(void* process_handle, void* address, const void* buffer, size_t size)
 {
 	SIZE_T bytes_written;
 	return WriteProcessMemory((HANDLE)process_handle, address, buffer, size, &bytes_written) && (bytes_written == size);
 }
 
-bool AddBreakpointExtended(HANDLE process_handle, void* address, bool is_temp) 
+bool AddBreakpointExtended(HANDLE process_handle, void* address, bool is_temp)
 {
-	for (int i = 0; i < MAX_BREAKPOINTS; i++) 
+	for (int i = 0; i < MAX_BREAKPOINTS; i++)
 	{
 		if (g_breakpoints[i].is_set && g_breakpoints[i].address == address) return true;
 	}
-	for (int i = 0; i < MAX_BREAKPOINTS; i++) 
+	for (int i = 0; i < MAX_BREAKPOINTS; i++)
 	{
-		if (!g_breakpoints[i].is_set) 
+		if (!g_breakpoints[i].is_set)
 		{
 			BYTE original;
-			if (ReadTargetMemory(process_handle, address, &original, 1)) 
+			if (ReadTargetMemory(process_handle, address, &original, 1))
 			{
 				BYTE int3_opcode = 0xCC;
-				if (WriteTargetMemory(process_handle, address, &int3_opcode, 1)) 
+				if (WriteTargetMemory(process_handle, address, &int3_opcode, 1))
 				{
 					g_breakpoints[i].address = address;
 					g_breakpoints[i].original_byte = original;
@@ -349,12 +349,12 @@ bool AddBreakpointExtended(HANDLE process_handle, void* address, bool is_temp)
 	return false;
 }
 
-bool AddBreakpoint(HANDLE process_handle, void* address) 
+bool AddBreakpoint(HANDLE process_handle, void* address)
 {
 	return AddBreakpointExtended(process_handle, address, false);
 }
 
-void SetSingleStepTrap(HANDLE thread_handle, bool enable) 
+void SetSingleStepTrap(HANDLE thread_handle, bool enable)
 {
 	CONTEXT ctx;
 	ctx.ContextFlags = CONTEXT_CONTROL;
@@ -364,7 +364,7 @@ void SetSingleStepTrap(HANDLE thread_handle, bool enable)
 	SetThreadContext(thread_handle, &ctx);
 }
 
-bool ResolveVariableDetails(HANDLE process_handle, HANDLE thread_handle, const char* var_name, DWORD64* out_address, DWORD* out_type_id, DWORD64* out_mod_base) 
+bool ResolveVariableDetails(HANDLE process_handle, HANDLE thread_handle, const char* var_name, DWORD64* out_address, DWORD* out_type_id, DWORD64* out_mod_base)
 {
 	CONTEXT ctx;
 	ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
@@ -379,14 +379,14 @@ bool ResolveVariableDetails(HANDLE process_handle, HANDLE thread_handle, const c
 	SymSetContext(process_handle, &sf, NULL);
 
 	FindVariableContext search_ctx = { var_name, 0, 0, 0, 0, 0, false };
-	if (SymEnumSymbols(process_handle, 0, NULL, EnumSymbolsCallback, &search_ctx) && search_ctx.found) 
+	if (SymEnumSymbols(process_handle, 0, NULL, EnumSymbolsCallback, &search_ctx) && search_ctx.found)
 	{
 
 		*out_type_id = search_ctx.type_id;
 		*out_mod_base = search_ctx.mod_base;
 
 		// 1. Process Register Relative Frame Storage (SYMFLAG_REGREL)
-		if (search_ctx.flags & SYMFLAG_REGREL) 
+		if (search_ctx.flags & SYMFLAG_REGREL)
 		{
 			// CRITICAL x86 FIX: Force both the register base value and the displacement
 			// into signed 32-bit integers. This ensures a value like 0xFFFFFFBC wraps 
@@ -396,11 +396,11 @@ bool ResolveVariableDetails(HANDLE process_handle, HANDLE thread_handle, const c
 			int signed_displacement = (int)(search_ctx.address & 0xFFFFFFFF);
 
 			// Choose the parent alignment tracking register based on PDB specifications
-			if (search_ctx.register_id == 23 || search_ctx.register_id == 7) 
+			if (search_ctx.register_id == 23 || search_ctx.register_id == 7)
 			{ // ESP
 				*out_address = (DWORD64)(esp_base + signed_displacement);
 			}
-			else 
+			else
 			{ // Default to standard EBP layout tracking
 				*out_address = (DWORD64)(ebp_base + signed_displacement);
 			}
@@ -408,7 +408,7 @@ bool ResolveVariableDetails(HANDLE process_handle, HANDLE thread_handle, const c
 		}
 
 		// 2. Safeguard against variables optimized down into registers
-		if (search_ctx.flags & SYMFLAG_REGISTER) 
+		if (search_ctx.flags & SYMFLAG_REGISTER)
 		{
 			printf("[-] Variable '%s' is stored purely inside a register and has no memory address.\n", var_name);
 			return false;
@@ -421,7 +421,7 @@ bool ResolveVariableDetails(HANDLE process_handle, HANDLE thread_handle, const c
 	return false;
 }
 
-void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char* express) 
+void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char* express)
 {
 	if (!g_symbols_initialized) return;
 
@@ -437,7 +437,7 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 	DWORD type_id = 0;
 	DWORD64 mod_base = 0;
 
-	if (!ResolveVariableDetails(process_handle, thread_handle, var_name, &absolute_address, &type_id, &mod_base)) 
+	if (!ResolveVariableDetails(process_handle, thread_handle, var_name, &absolute_address, &type_id, &mod_base))
 	{
 		printf("[-] Symbol variable '%s' could not be resolved in the current active local stack frame layer.\n", var_name);
 		return;
@@ -446,7 +446,7 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 	DWORD sym_tag = 0;
 	SymGetTypeInfo(process_handle, mod_base, type_id, TI_GET_SYMTAG, &sym_tag);
 
-	if (sym_tag == SymTagArrayType) 
+	if (sym_tag == SymTagArrayType)
 	{
 		DWORD count = 0;
 		DWORD type_id_child = 0;
@@ -467,12 +467,12 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 		return;
 	}
 
-	if (sym_tag == SymTagPointerType || dereference) 
+	if (sym_tag == SymTagPointerType || dereference)
 	{
 		DWORD64 target_pointer_value = 0;
 
 		// 1. Read the actual address stored inside the pointer variable
-		if (!ReadTargetMemory(process_handle, (void*)absolute_address, &target_pointer_value, sizeof(void*))) 
+		if (!ReadTargetMemory(process_handle, (void*)absolute_address, &target_pointer_value, sizeof(void*)))
 		{
 			printf("[-] Failed to read pointer variable base value.\n");
 			return;
@@ -485,38 +485,38 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 		SymGetTypeInfo(process_handle, mod_base, child_type_id, TI_GET_LENGTH, &child_size);
 
 		// 3. Handle character arrays (Strings)
-		if (child_size == 1 && !dereference) 
+		if (child_size == 1 && !dereference)
 		{
 			char str_buffer[256] = { 0 };
 			bool read_success = false;
 			size_t bytes_gathered = 0;
 
 			// Read byte-by-byte up to your expected buffer threshold or until a null-terminator
-			for (size_t i = 0; i < sizeof(str_buffer) - 1; i++) 
+			for (size_t i = 0; i < sizeof(str_buffer) - 1; i++)
 			{
 				char single_byte = 0;
 				void* current_ptr = (BYTE*)target_pointer_value + i;
 
-				if (ReadTargetMemory(process_handle, current_ptr, &single_byte, 1)) 
+				if (ReadTargetMemory(process_handle, current_ptr, &single_byte, 1))
 				{
 					read_success = true; // We successfully read at least the start
 					str_buffer[i] = single_byte;
 					bytes_gathered++;
 					if (single_byte == '\0') break; // Safe termination
 				}
-				else 
+				else
 				{
 					// Hit unmapped memory boundary or end of heap allocation block
 					break;
 				}
 			}
 
-			if (read_success && bytes_gathered > 0) 
+			if (read_success && bytes_gathered > 0)
 			{
 				printf("[+] Variable '%s' (char*) points to string: \"%s\" (at 0x%I64X)\n",
 					var_name, str_buffer, target_pointer_value);
 			}
-			else 
+			else
 			{
 				DWORD err = GetLastError();
 				printf("[-] Complete failure reading string at 0x%I64X. Win32 Error Code: %lu\n",
@@ -533,38 +533,38 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 		SymGetTypeInfo(process_handle, mod_base, child_type_id, TI_GET_SYMTAG, &child_sym_tag);
 
 		// CRITICAL FIX: If it points directly to a base scalar type, we only print 1 element!
-		if (child_sym_tag == SymTagBaseType) 
+		if (child_sym_tag == SymTagBaseType)
 		{
 			elements_to_print = 1;
 		}
 
-		if (elements_to_print == 1) 
+		if (elements_to_print == 1)
 		{
 			// Treat as a clean single scalar pointer dereference
 			int scalar_val = 0;
-			if (ReadTargetMemory(process_handle, (void*)target_pointer_value, &scalar_val, (size_t)child_size)) 
+			if (ReadTargetMemory(process_handle, (void*)target_pointer_value, &scalar_val, (size_t)child_size))
 			{
 				printf("[+] Variable '%s' (int*) points to value: %d (at 0x%I64X)\n", var_name, scalar_val, target_pointer_value);
 			}
-			else 
+			else
 			{
 				printf("[-] Failed to read pointer destination memory at 0x%I64X\n", target_pointer_value);
 			}
 		}
-		else 
+		else
 		{
 			// Treat as a dynamic array layout
 			printf("[+] Variable '%s' resolved as Dynamic Array at 0x%I64X:\n", var_name, target_pointer_value);
 			printf("    Values: [ ");
-			for (DWORD i = 0; i < elements_to_print; i++) 
+			for (DWORD i = 0; i < elements_to_print; i++)
 			{
 				void* elem_addr = (BYTE*)target_pointer_value + (i * child_size);
 				int scalar_val = 0;
-				if (ReadTargetMemory(process_handle, elem_addr, &scalar_val, (size_t)child_size)) 
+				if (ReadTargetMemory(process_handle, elem_addr, &scalar_val, (size_t)child_size))
 				{
 					printf("%d ", scalar_val);
 				}
-				else 
+				else
 				{
 					break;
 				}
@@ -575,7 +575,7 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 	}
 
 	//Parse structs/unions
-	if (sym_tag == SymTagUDT) 
+	if (sym_tag == SymTagUDT)
 	{
 		// 1. Get the number of children (members) inside the UDT
 		DWORD children_count = 0;
@@ -583,7 +583,7 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 
 		printf("[+] Variable '%s' resolved as Struct/Union (Members: %lu) at 0x%I64X:\n", var_name, children_count, absolute_address);
 
-		if (children_count == 0) 
+		if (children_count == 0)
 		{
 			printf("    { <empty or opaque type> }\n");
 			return;
@@ -599,11 +599,11 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 		pParams->Start = 0;
 
 		// 3. Populate child indices into the allocation array
-		if (SymGetTypeInfo(process_handle, mod_base, type_id, TI_FINDCHILDREN, pParams)) 
+		if (SymGetTypeInfo(process_handle, mod_base, type_id, TI_FINDCHILDREN, pParams))
 		{
 			printf("    {\n");
 
-			for (DWORD i = 0; i < children_count; i++) 
+			for (DWORD i = 0; i < children_count; i++)
 			{
 				ULONG child_id = pParams->ChildId[i];
 
@@ -627,15 +627,15 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 
 				void* member_absolute_addr = (BYTE*)absolute_address + member_offset;
 
-				if (child_name_w) 
+				if (child_name_w)
 				{
 					wprintf(L"        .%ls [Offset: +%lu, Size: %I64u]: ", child_name_w, member_offset, member_size);
 
 					// CASE A: Member is a simple scalar integer / primitive
-					if (member_sym_tag == SymTagBaseType) 
+					if (member_sym_tag == SymTagBaseType)
 					{
 						long long scalar_value = 0; // Large enough container for 1, 2, 4, or 8 byte integers
-						if (ReadTargetMemory(process_handle, member_absolute_addr, &scalar_value, (size_t)member_size)) 
+						if (ReadTargetMemory(process_handle, member_absolute_addr, &scalar_value, (size_t)member_size))
 						{
 							// Mask according to actual size to avoid high-byte bleeding
 							if (member_size == 1) printf("%d\n", (char)scalar_value);
@@ -643,18 +643,18 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 							else if (member_size == 4) printf("%d\n", (int)scalar_value);
 							else printf("%I64d\n", scalar_value);
 						}
-						else 
+						else
 						{
 							printf("<failed to read base type>\n");
 						}
 					}
 
 					// CASE B: Member is a pointer (like char* name)
-					else if (member_sym_tag == SymTagPointerType) 
+					else if (member_sym_tag == SymTagPointerType)
 					{
 						DWORD64 target_pointer_value = 0;
 						// Read the full pointer size (4 bytes on x86, 8 bytes on x64)
-						if (ReadTargetMemory(process_handle, member_absolute_addr, &target_pointer_value, (size_t)member_size)) 
+						if (ReadTargetMemory(process_handle, member_absolute_addr, &target_pointer_value, (size_t)member_size))
 						{
 
 							// CRITICAL x86 BRIDGE: Mask out high-order garbage bits from 64-bit register allocation
@@ -666,24 +666,24 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 							SymGetTypeInfo(process_handle, mod_base, member_type_id, TI_GET_TYPEID, &ptr_child_type_id);
 							SymGetTypeInfo(process_handle, mod_base, ptr_child_type_id, TI_GET_LENGTH, &ptr_child_size);
 
-							if (ptr_child_size == 1) 
+							if (ptr_child_size == 1)
 							{ // It's a char* string pointer!
 								char str_buffer[256] = { 0 }; // Explicitly size the buffer array footprint
 								bool read_any = false;
 
-								for (size_t k = 0; k < sizeof(str_buffer) - 1; k++) 
+								for (size_t k = 0; k < sizeof(str_buffer) - 1; k++)
 								{
 									char b = 0;
 									// Explicitly cast to clean 32-bit memory boundary pointer
 									void* source_char_addr = (void*)((DWORD_PTR)target_pointer_value + k);
 
-									if (ReadTargetMemory(process_handle, source_char_addr, &b, 1)) 
+									if (ReadTargetMemory(process_handle, source_char_addr, &b, 1))
 									{
 										read_any = true;
 										str_buffer[k] = b;
 										if (b == '\0') break;
 									}
-									else 
+									else
 									{
 										break;
 									}
@@ -692,27 +692,27 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 								if (read_any) printf("0x%I64X -> \"%s\"\n", target_pointer_value, str_buffer);
 								else printf("0x%I64X -> <unmapped/empty string>\n", target_pointer_value);
 							}
-							else 
+							else
 							{
 								// Pointer to an integer or another structural component
 								printf("0x%I64X -> pointing to type size %I64u\n", target_pointer_value, ptr_child_size);
 							}
 						}
-						else 
+						else
 						{
 							printf("<failed to read pointer address>\n");
 						}
 					}
 
 					// CASE C: Fallback structural element parsing
-					else 
+					else
 					{
 						printf("<complex UDT nested structure>\n");
 					}
 				}
 
 				// DbgHelp allocates the name with LocalAlloc, so we must clean it up
-				if (child_name_w) 
+				if (child_name_w)
 				{
 					LocalFree(child_name_w);
 				}
@@ -725,13 +725,13 @@ void PrintVariableByName(HANDLE process_handle, HANDLE thread_handle, const char
 	}
 
 	int scalar_value = 0;
-	if (ReadTargetMemory(process_handle, (void*)absolute_address, &scalar_value, sizeof(scalar_value))) 
+	if (ReadTargetMemory(process_handle, (void*)absolute_address, &scalar_value, sizeof(scalar_value)))
 	{
 		printf("[+] Variable '%s' (at 0x%I64X) value: %d\n", var_name, absolute_address, scalar_value);
 	}
 }
 
-void ModifyVariableByName(HANDLE process_handle, HANDLE thread_handle, const char* var_name, int new_value) 
+void ModifyVariableByName(HANDLE process_handle, HANDLE thread_handle, const char* var_name, int new_value)
 {
 	if (!g_symbols_initialized) return;
 
@@ -739,32 +739,32 @@ void ModifyVariableByName(HANDLE process_handle, HANDLE thread_handle, const cha
 	DWORD type_id = 0;
 	DWORD64 mod_base = 0;
 
-	if (ResolveVariableDetails(process_handle, thread_handle, var_name, &absolute_address, &type_id, &mod_base)) 
+	if (ResolveVariableDetails(process_handle, thread_handle, var_name, &absolute_address, &type_id, &mod_base))
 	{
-		if (WriteTargetMemory(process_handle, (void*)absolute_address, &new_value, sizeof(new_value))) 
+		if (WriteTargetMemory(process_handle, (void*)absolute_address, &new_value, sizeof(new_value)))
 		{
 			printf("[+] Successfully patched '%s' to value: %d\n", var_name, new_value);
 		}
 	}
 }
 
-void SetLineBreakpoint(HANDLE process_handle, const char* filename, int line_number) 
+void SetLineBreakpoint(HANDLE process_handle, const char* filename, int line_number)
 {
 	IMAGEHLP_LINE64 line_info = { 0 };
 	line_info.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
 	LONG displacement = 0;
 
-	if (SymGetLineFromName64(process_handle, NULL, filename, line_number, &displacement, &line_info)) 
+	if (SymGetLineFromName64(process_handle, NULL, filename, line_number, &displacement, &line_info))
 	{
 		void* bp_address = (void*)line_info.Address;
-		if (AddBreakpoint(process_handle, bp_address)) 
+		if (AddBreakpoint(process_handle, bp_address))
 		{
 			printf("[+] Successfully set line breakpoint at %s:%d (Address: 0x%p)\n", filename, line_number, bp_address);
 		}
 	}
 }
 
-void HandleStepOver(HANDLE process_handle, HANDLE thread_handle) 
+void HandleStepOver(HANDLE process_handle, HANDLE thread_handle)
 {
 	CONTEXT ctx;
 	ctx.ContextFlags = CONTEXT_CONTROL;
@@ -777,7 +777,7 @@ void HandleStepOver(HANDLE process_handle, HANDLE thread_handle)
 	void* current_ip = (void*)ctx.Eip;
 #endif
 
-	if (ReadTargetMemory(process_handle, current_ip, instruction_buffer, sizeof(instruction_buffer))) 
+	if (ReadTargetMemory(process_handle, current_ip, instruction_buffer, sizeof(instruction_buffer)))
 	{
 		BYTE opcode = instruction_buffer[0];
 		if (opcode == 0xE8) {
@@ -786,13 +786,13 @@ void HandleStepOver(HANDLE process_handle, HANDLE thread_handle)
 			g_is_single_stepping = false;
 			return;
 		}
-		else if (opcode == 0xFF && (instruction_buffer[1] & 0x30) == 0x10) 
+		else if (opcode == 0xFF && (instruction_buffer[1] & 0x30) == 0x10)
 		{
 			void* next_instruction = (void*)((BYTE*)current_ip + 2); AddBreakpointExtended(process_handle, next_instruction, true); g_is_single_stepping = false; return;
 		}
 	}
-	
-	g_is_single_stepping = true; 
+
+	g_is_single_stepping = true;
 	SetSingleStepTrap(thread_handle, true);
 }
 
@@ -822,11 +822,11 @@ void HandleStepOut(HANDLE process_handle, HANDLE thread_handle)
 void DumpMemoryHex(HANDLE process_handle, void* start_address, size_t dynamic_bytes)
 {
 	BYTE buffer[16];
-	
+
 	size_t rows = (dynamic_bytes + 15) / 16;
-	
+
 	printf("\n--- Memory Dump at 0x%p ---\n", start_address);
-	
+
 	for (size_t r = 0; r < rows; r++)
 	{
 		void* current_row_addr = (BYTE*)start_address + (r * 16);
@@ -943,7 +943,7 @@ void DebuggerConsolePrompt(HANDLE process_handle, HANDLE thread_handle)
 	char cmd[64];
 	while (true)
 	{
-		printf("\n[dbgr]> "); 
+		printf("\n[dbgr]> ");
 		if (scanf_s("%63s", cmd, (unsigned int)sizeof(cmd)) <= 0) continue;
 
 		if (strcmp(cmd, "help") == 0)
@@ -951,8 +951,8 @@ void DebuggerConsolePrompt(HANDLE process_handle, HANDLE thread_handle)
 			printf("Commands:\n  r             - Print registers");
 			printf("         \n  si            - Step Into");
 			printf("		 \n  so            - Step Over");
-			printf("         \n  out           - Step Out"); 
-			printf("         \n  c             - Continue"); 
+			printf("         \n  out           - Step Out");
+			printf("         \n  c             - Continue");
 			printf("         \n  bt            - Backtrace");
 			printf("         \n  x             - Hex dump(from r command: x 0x00AFFBF8 32)");
 			printf("         \n  print         - Evaluate variable / pointer(e.g., print my_ptr, print my_array)");
@@ -1054,7 +1054,7 @@ void DebuggerConsolePrompt(HANDLE process_handle, HANDLE thread_handle)
 				}
 			}
 		}
-		else if (strcmp(cmd, "locals") == 0 || strcmp(cmd, "info locals") == 0) 
+		else if (strcmp(cmd, "locals") == 0 || strcmp(cmd, "info locals") == 0)
 		{
 			PrintLocalVariables(process_handle, thread_handle);
 		}
